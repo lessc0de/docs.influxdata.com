@@ -8,22 +8,11 @@ menu:
 ---
 
 The 0.9 line of InfluxDB used BoltDB as the underlying storage engine.
-This writeup is about the experimental version of the Time Structured Merge Tree storage engine that was released in 0.9.5.
-There may be small discrepancies between the current implementation of TSM and this document.
+The Time Structured Merge Tree storage engine was [introduced in 0.9.5](https://influxdata.com/blog/new-storage-engine-time-structured-merge-tree/) as an experimental storage engine. 
+Starting with InfluxDB 0.10, TSM is the primary engine for InfluxDB, and as of InfluxDB 0.12 it is the only supported storage engine. 
+TSM achieves up to a 45x reduction in disk space usage over the previous B+Tree engine with even greater write throughput and compression than what we saw with LevelDB and its variants.
 
-<a href="https://influxdata.com/blog/new-storage-engine-time-structured-merge-tree/" target="_">See the blog post announcement about the storage engine here</a>.
-
-## The new InfluxDB storage engine: from LSM Tree to B+Tree and back again to create the Time Structured Merge Tree
-
-The properties of the time series data use case make it challenging for many existing storage engines.
-Over the course of InfluxDB’s development we’ve tried a few of the more popular options.
-We started with LevelDB, an engine based on LSM Trees, which are optimized for write throughput.
-After that we tried BoltDB, an engine based on a memory mapped B+Tree, which is optimized for reads.
-Finally, we ended up building our own storage engine that is similar in many ways to LSM Trees.
-
-With our new storage engine we were able to achieve up to a 45x reduction in disk space usage from our B+Tree setup with even greater write throughput and compression than what we saw with LevelDB and its variants.
-Using batched writes, we were able to insert more than 300,000 points per second on a c3.8xlarge instance in AWS.
-This post will cover the details of that evolution and end with an in-depth look at our new storage engine and its inner workings.
+Before we discuss the specifics of the TSM, let's look at what a time series database needs from its storage engine:
 
 ### Properties of Time Series Data
 
@@ -37,7 +26,7 @@ There are a number of factors that conspire to make it very difficult to get it 
 * Mostly an insert/append workload, very few updates
 
 The first and most obvious problem is one of scale.
-In DevOps, for instance, you can collect hundreds of millions or billions of unique data points every day.
+In the Internet of Things, for instance, you can collect hundreds of millions or billions of unique data points every day from tens or hundreds of millions of devices or sensors.
 
 To prove out the numbers, let’s say we have 200 VMs or servers running, with each server collecting an average of 100 measurements every 10 seconds.
 Given there are 86,400 seconds in a day, a single measurement will generate 8,640 points in a day, per server.
