@@ -27,16 +27,7 @@ There are a number of factors that conspire to make it very difficult to get it 
 
 The first and most obvious problem is one of scale.
 In the Internet of Things, for instance, you can collect hundreds of millions or billions of unique data points every day from tens or hundreds of millions of devices or sensors.
-
-To prove out the numbers, let’s say we have 200 VMs or servers running, with each server collecting an average of 100 measurements every 10 seconds.
-Given there are 86,400 seconds in a day, a single measurement will generate 8,640 points in a day, per server.
-That gives us a total of 200 * 100 * 8,640 = 172,800,000 individual data points per day.
-We find similar or larger numbers in sensor data use cases.
-
 The volume of data means that the write throughput can be very high.
-We regularly get requests for setups than can handle hundreds of thousands of writes per second.
-I’ve talked to some larger companies that will only consider systems that can handle millions of writes per second.
-
 At the same time, time series data can be a high read throughput use case.
 It’s true that if you’re tracking 700,000 unique metrics or time series, you can’t hope to visualize all of them, which is what leads many people to think that you don’t actually read most of the data that goes into the database.
 However, other than dashboards that people have up on their screens, there are automated systems for monitoring or combining the large volume of time series data with other types of data.
@@ -50,11 +41,17 @@ However, we have those appends happening in individual time series.
 So the inserts end up looking more like random inserts than append only inserts.
 
 One of the biggest problems we found with time series data is that it’s very common to delete all data after it gets past a certain age.
-The common pattern here is that you’ll have high precision data that is kept for a short period of time like a few hours or a few weeks.
-You’ll then downsample and aggregate that data into lower precision, which you’ll keep around for much longer.
-
+The common pattern here is that high precision data is kept for a short period of time, a few hours or a few weeks,
+and then downsampled and aggregated into lower precision data which is kept much longer.
 The naive implementation would be to simply delete each record once it gets past its expiration time.
-However, that means that once you’re up to your window of retention, you’ll be doing just as many deletes as you do writes, which is something most storage engines aren’t designed for.
+However, that means that once we reach the window of retention, the system is processing just as many deletes as you do writes, which is something most storage engines can't do well.
+
+
+
+
+
+
+
 
 Let’s dig into the details of the two types of storage engines we tried and how these properties had a significant impact on our performance.
 
