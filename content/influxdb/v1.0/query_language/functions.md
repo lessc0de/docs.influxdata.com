@@ -7,21 +7,19 @@ menu:
     parent: query_language
 ---
 
-Use InfluxQL functions to aggregate, select, and transform data.
+Use InfluxQL functions to aggregate, select, transform, and predict data.
 
-| Aggregations  | Selectors | Transformations  
-|---|---|---|
-| [COUNT()](/influxdb/v1.0/query_language/functions/#count)  | [BOTTOM()](/influxdb/v1.0/query_language/functions/#bottom)  | [CEILING()](/influxdb/v1.0/query_language/functions/#ceiling)   
-| [DISTINCT()](/influxdb/v1.0/query_language/functions/#distinct)  | [FIRST()](/influxdb/v1.0/query_language/functions/#first)  | [DERIVATIVE()](/influxdb/v1.0/query_language/functions/#derivative)  
-| [INTEGRAL()](/influxdb/v1.0/query_language/functions/#integral)  | [LAST()](/influxdb/v1.0/query_language/functions/#last)  | [DIFFERENCE()](/influxdb/v1.0/query_language/functions/#difference)  
-| [MEAN()](/influxdb/v1.0/query_language/functions/#mean) | [MAX()](/influxdb/v1.0/query_language/functions/#max)  | [ELAPSED()](/influxdb/v1.0/query_language/functions/#elapsed)
-| [MEDIAN()](/influxdb/v1.0/query_language/functions/#median)  | [MIN()](/influxdb/v1.0/query_language/functions/#min)  |  [FLOOR()](/influxdb/v1.0/query_language/functions/#floor)
-| [SPREAD()](/influxdb/v1.0/query_language/functions/#spread) | [PERCENTILE()](/influxdb/v1.0/query_language/functions/#percentile) | [HISTOGRAM()](/influxdb/v1.0/query_language/functions/#histogram)
-| [SUM()](/influxdb/v1.0/query_language/functions/#sum)  | [TOP()](/influxdb/v1.0/query_language/functions/#top) | [MOVING_AVERAGE()](/influxdb/v1.0/query_language/functions/#moving-average) |
-|   |  | [NON_NEGATIVE_DERIVATIVE()](/influxdb/v1.0/query_language/functions/#non-negative-derivative) |
-|   |  | [STDDEV()](/influxdb/v1.0/query_language/functions/#stddev)
-
-
+| Aggregations | Selectors | Transformations | Predictors |
+|--------------|-----------|-----------------|------------|
+| [COUNT()](#count)  | [BOTTOM()](#bottom)  | [CEILING()](#ceiling) | [HOLT_WINTERS()](#holt-winters)  
+| [DISTINCT()](#distinct)  | [FIRST()](#first)  | [DERIVATIVE()](#derivative)  
+| [INTEGRAL()](#integral)  | [LAST()](#last)  | [DIFFERENCE()](#difference)  
+| [MEAN()](#mean) | [MAX()](#max)  | [ELAPSED()](#elapsed)
+| [MEDIAN()](#median)  | [MIN()](#min)  |  [FLOOR()](#floor)
+| [SPREAD()](#spread) | [PERCENTILE()](#percentile) | [HISTOGRAM()](#histogram)
+| [SUM()](#sum)  | [TOP()](#top) | [MOVING_AVERAGE()](#moving-average) |
+|   |  | [NON_NEGATIVE_DERIVATIVE()](#non-negative-derivative) |
+|   |  | [STDDEV()](#stddev)
 
 
 Useful InfluxQL for functions:  
@@ -1663,3 +1661,110 @@ name: h2o_feet
 time			               dream_name
 1970-01-01T00:00:00Z	 4.442107025822521
 ```
+
+# Predictors
+
+## HOLT_WINTERS()
+Returns N number of predicted values for a single
+[field](/influxdb/v1.0/concepts/glossary/#field) using the
+[Holt-Winters](https://www.otexts.org/fpp/7/5) seasonal method.
+The seasonal adjustment of the predicted values is optional.
+The field must be of type int64 or float64.
+
+Returns only the predicted values:
+```
+SELECT HOLT_WINTERS(FUNCTION(<field_key>),<N>,<S>) FROM <measurement_name> WHERE <stuff> GROUP BY time(<interval>)[,<stuff>]
+```
+
+Returns the fitted values and the predicted values:
+```
+SELECT HOLT_WINTERS_WITH_FIT(FUNCTION(<field_key>),<N>,<S>) FROM <measurement_name> WHERE <stuff> GROUP BY time(<interval>)[,<stuff>]
+```
+
+Syntax explanation:
+
+`N` is the number of predicted values.
+Those values occur at the same interval as the `GROUP BY time()` interval.
+If your `GROUP BY time()` interval is `6m` and `N` is `3`, then you'll
+receive three predicted values that are each six minutes apart.
+
+`S` is the seasonal pattern parameter.
+The parameter delimits the length of a seasonal pattern according to the
+`GROUP BY time()` interval.
+If your `GROUP BY time()` interval is `2m` and `S` is `6`, then the
+seasonal pattern occurs every three data points (`6` / `2` = `3`).
+If you do not want to seasonally adjust your predicted values, set `S` to `0`
+or `1.`
+
+Notice that `HOLT_WINTERS()` requires the use of another InfluxQL function and a
+`GROUP BY time()` clause.
+That ensures that the function receives regular time series data, that is, data
+that occur at consistent time intervals.
+
+> **Note:** In some cases, users may receive fewer predicted points than
+requested by the `N` parameter.
+That behavior can occur when the math becomes unstable and cannot not forecast
+more points.
+It implies that either `HOLT_WINTERS()` is not suited for the dataset or that
+the seasonal adjustment parameter is invalid and is confusing the algorithm.
+
+Use cases:
+
+* Predict when need more CPU
+* Compare predicted values to actual values to detect anomalies
+
+Example:
+
+In the following example, we'll apply `HOLT_WINTERS()` to the `water_level` data
+with the help of [Chronograf](https://docs.influxdata.com/chronograf/v1.0/)
+graphs.
+
+Our query covers the `water_level` in `santa_monica` between August 22, 2015
+at 22:12 and August 28, 2015 at 03:00:
+```
+SELECT "water_level" FROM "h2o_feet" WHERE "location"='santa_monica' AND time >= '2015-08-22 22:12:00' AND time <= '2015-08-28 03:00:00'
+```
+
+![Raw Data](/img/influxdb/hw_raw_data.png)
+
+There are several ways to do this.
+We start by writing a `GROUP BY time()` query with the InfluxDB function
+`FIRST()` to match the general trends of the `water_level` data (see the green
+series in the graph below).
+
+Focusing on the `GROUP BY time()` clause in the query, the first argument
+(`379m` = 6 hours and 19 minutes) follows the peaks and troughs of the
+`water_level` data (each peak and trough is a single data point).
+The second argument is the offset interval.
+We use an offset
+interval of `348m` to correct the InfluxDB's default `GROUP BY time()` interval.
+Without that second parameter the results would start at blah instead of blah,
+which wouldn't match our raw data well.
+
+```
+SELECT first("water_level") FROM "h2o_feet" WHERE "location"='santa_monica' and time >= '2015-08-22 22:12:00' and time <= '2015-08-28 03:00:00' GROUP BY time(379m,348m)
+```
+
+![First step](/img/influxdb/hw_first_step.png)
+
+Now that we have our `GROUP BY time()` clause settled, we add the
+`HOLT_WINTERS_WITH_FIT()` function to the query (see the green line in the graph
+below).
+Describe with fit.
+
+Focusing on the `HOLT_WINTERS_WITH_FIT()` arguments, the first argument, 10
+tells InfluxDB to predict 10 data points, each point will be `379m` apart as
+determined by the first argument in the `GROUP BY time()` interval.
+
+The second argument is the seasonal pattern in the data.
+If you look at the data the pattern in the fitted data, the lopsided W pattern,
+occurs every four points of `379m` which is whatever hours and minutes.
+Typically, we'd use 4 as the seasonal pattern argument, but sometimes
+using a multiple of the seasonal pattern allows for a better fit, so we use
+12.
+
+```
+SELECT holt_winters_with_fit(first(water_level),10,12) FROM h2o_feet where location='santa_monica' and time >= '2015-08-22 22:12:00' and time <= '2015-08-28 03:00:00' group by time(379m,348m)
+```
+
+![Second step](/img/influxdb/hw_second_step.png)
